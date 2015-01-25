@@ -3,6 +3,7 @@ using Renci.SshNet.Common;
 using Renci.SshNet.NetConf;
 using System.Xml;
 using System.Diagnostics.CodeAnalysis;
+using Windows.Data.Xml.Dom;
 
 namespace Renci.SshNet
 {

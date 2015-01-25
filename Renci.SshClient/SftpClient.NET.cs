@@ -5,6 +5,10 @@ using System.IO;
 using Renci.SshNet.Common;
 using Renci.SshNet.Sftp;
 using System.Globalization;
+using Windows.Storage;
+using Windows.Storage.Search;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 
 namespace Renci.SshNet
 {
@@ -22,9 +26,9 @@ namespace Renci.SshNet
         /// <param name="destinationPath">The destination path.</param>
         /// <param name="searchPattern">The search pattern.</param>
         /// <returns>List of uploaded files.</returns>
-        public IEnumerable<FileInfo> SynchronizeDirectories(string sourcePath, string destinationPath, string searchPattern)
+        public async Task<IEnumerable<IStorageFile>> SynchronizeDirectories(string sourcePath, string destinationPath, string searchPattern)
         {
-            return InternalSynchronizeDirectories(sourcePath, destinationPath, searchPattern, null);
+            return await InternalSynchronizeDirectories(sourcePath, destinationPath, searchPattern, null);
         }
 
         /// <summary>
@@ -53,7 +57,7 @@ namespace Renci.SshNet
             {
                 try
                 {
-                    var result = InternalSynchronizeDirectories(sourcePath, destinationPath, searchPattern, asyncResult);
+                    var result = InternalSynchronizeDirectories(sourcePath, destinationPath, searchPattern, asyncResult).Result;
 
                     asyncResult.SetAsCompleted(result, false);
                 }
@@ -72,7 +76,7 @@ namespace Renci.SshNet
         /// <param name="asyncResult">The async result.</param>
         /// <returns>List of uploaded files.</returns>
         /// <exception cref="System.ArgumentException">Either the IAsyncResult object did not come from the corresponding async method on this type, or EndExecute was called multiple times with the same IAsyncResult.</exception>
-        public IEnumerable<FileInfo> EndSynchronizeDirectories(IAsyncResult asyncResult)
+        public IEnumerable<IStorageFile> EndSynchronizeDirectories(IAsyncResult asyncResult)
         {
             var ar = asyncResult as SftpSynchronizeDirectoriesAsyncResult;
 
@@ -83,25 +87,20 @@ namespace Renci.SshNet
             return ar.EndInvoke();
         }
 
-        private IEnumerable<FileInfo> InternalSynchronizeDirectories(string sourcePath, string destinationPath, string searchPattern, SftpSynchronizeDirectoriesAsyncResult asynchResult)
+        private async Task<IEnumerable<IStorageFile>> InternalSynchronizeDirectories(string sourcePath, string destinationPath, string searchPattern, SftpSynchronizeDirectoriesAsyncResult asynchResult)
         {
             if (destinationPath.IsNullOrWhiteSpace())
                 throw new ArgumentException("destinationPath");
 
-            if (!Directory.Exists(sourcePath))
-                throw new FileNotFoundException(string.Format("Source directory not found: {0}", sourcePath));
+            var uploadedFiles = new List<IStorageFile>();
 
-            var uploadedFiles = new List<FileInfo>();
+            var sourceDirectory = await StorageFolder.GetFolderFromPathAsync(sourcePath);
 
-            var sourceDirectory = new DirectoryInfo(sourcePath);
+            var searchRegex = new Regex(string.Join(string.Empty, searchPattern.Select(c => c == '*' ? ".*" : c == '?' ? ".?" : Regex.Escape(c.ToString()))));
 
-#if SILVERLIGHT
-            var sourceFiles = sourceDirectory.EnumerateFiles(searchPattern);
-#else
-            var sourceFiles = sourceDirectory.GetFiles(searchPattern);
-#endif
+            var sourceFiles = (await sourceDirectory.GetFilesAsync()).Where<StorageFile>(file => searchRegex.IsMatch(file.Name)).ToList();
 
-            if (sourceFiles == null || !sourceFiles.Any())
+            if (!sourceFiles.Any())
                 return uploadedFiles;
 
             #region Existing Files at The Destination
@@ -129,7 +128,7 @@ namespace Renci.SshNet
                     var temp = destDict[localFile.Name];
                     //  TODO:   Use md5 to detect a difference
                     //ltang: File exists at the destination => Using filesize to detect the difference
-                    isDifferent = localFile.Length != temp.Length;
+                    isDifferent = (await localFile.GetBasicPropertiesAsync()).Size != (ulong)temp.Length;
                 }
 
                 if (isDifferent)
@@ -137,7 +136,7 @@ namespace Renci.SshNet
                     var remoteFileName = string.Format(CultureInfo.InvariantCulture, @"{0}/{1}", destinationPath, localFile.Name);
                     try
                     {
-                        using (var file = File.OpenRead(localFile.FullName))
+                        using (var file = await localFile.OpenStreamForReadAsync())
                         {
                             InternalUploadFile(file, remoteFileName, uploadFlag, null, null);
                         }
@@ -151,7 +150,7 @@ namespace Renci.SshNet
                     }
                     catch (Exception ex)
                     {
-                        throw new Exception(string.Format("Failed to upload {0} to {1}", localFile.FullName, remoteFileName), ex);
+                        throw new Exception(string.Format("Failed to upload {0} to {1}", localFile.Path, remoteFileName), ex);
                     }
                 }
             }

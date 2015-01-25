@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Security.Cryptography;
+using Windows.Security.Cryptography;
 
 namespace Renci.SshNet.Messages.Transport
 {
@@ -9,15 +10,14 @@ namespace Renci.SshNet.Messages.Transport
     [Message("SSH_MSG_KEXINIT", 20)]
     public class KeyExchangeInitMessage : Message, IKeyExchangedAllowed
     {
-        private static readonly RNGCryptoServiceProvider Randomizer = new RNGCryptoServiceProvider();
-
         /// <summary>
         /// Initializes a new instance of the <see cref="KeyExchangeInitMessage"/> class.
         /// </summary>
         public KeyExchangeInitMessage()
         {
-            var cookie = new byte[16];
-            Randomizer.GetBytes(cookie);
+            byte[] cookie;
+            var randomBuffer = CryptographicBuffer.GenerateRandom(16);
+            CryptographicBuffer.CopyToByteArray(randomBuffer, out cookie);
             Cookie = cookie;
         }
 

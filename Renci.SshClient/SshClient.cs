@@ -13,11 +13,6 @@ namespace Renci.SshNet
     public class SshClient : BaseClient
     {
         /// <summary>
-        /// Holds the list of forwarded ports
-        /// </summary>
-        private readonly List<ForwardedPort> _forwardedPorts;
-
-        /// <summary>
         /// Holds a value indicating whether the current instance is disposed.
         /// </summary>
         /// <value>
@@ -26,17 +21,6 @@ namespace Renci.SshNet
         private bool _isDisposed;
 
         private Stream _inputStream;
-
-        /// <summary>
-        /// Gets the list of forwarded ports.
-        /// </summary>
-        public IEnumerable<ForwardedPort> ForwardedPorts
-        {
-            get
-            {
-                return _forwardedPorts.AsReadOnly();
-            }
-        }
 
         #region Constructors
 
@@ -155,74 +139,9 @@ namespace Renci.SshNet
         internal SshClient(ConnectionInfo connectionInfo, bool ownsConnectionInfo, IServiceFactory serviceFactory)
             : base(connectionInfo, ownsConnectionInfo, serviceFactory)
         {
-            _forwardedPorts = new List<ForwardedPort>();
         }
 
         #endregion
-
-        /// <summary>
-        /// Called when client is disconnecting from the server.
-        /// </summary>
-        protected override void OnDisconnecting()
-        {
-            base.OnDisconnecting();
-
-            foreach (var port in _forwardedPorts)
-            {
-                port.Stop();
-            }
-        }
-
-        /// <summary>
-        /// Adds the forwarded port.
-        /// </summary>
-        /// <param name="port">The port.</param>
-        /// <example>
-        ///     <code source="..\..\Renci.SshNet.Tests\Classes\ForwardedPortRemoteTest.cs" region="Example SshClient AddForwardedPort Start Stop ForwardedPortRemote" language="C#" title="Remote port forwarding" />
-        ///     <code source="..\..\Renci.SshNet.Tests\Classes\ForwardedPortLocalTest.cs" region="Example SshClient AddForwardedPort Start Stop ForwardedPortLocal" language="C#" title="Local port forwarding" />
-        /// </example>
-        /// <exception cref="InvalidOperationException">Forwarded port is already added to a different client.</exception>
-        /// <exception cref="ArgumentNullException"><paramref name="port"/> is null.</exception>
-        /// <exception cref="SshConnectionException">Client is not connected.</exception>
-        public void AddForwardedPort(ForwardedPort port)
-        {
-            if (port == null)
-                throw new ArgumentNullException("port");
-            EnsureSessionIsOpen();
-
-            AttachForwardedPort(port);
-            _forwardedPorts.Add(port);
-        }
-
-        /// <summary>
-        /// Stops and removes the forwarded port from the list.
-        /// </summary>
-        /// <param name="port">Forwarded port.</param>
-        /// <exception cref="ArgumentNullException"><paramref name="port"/> is null.</exception>
-        public void RemoveForwardedPort(ForwardedPort port)
-        {
-            if (port == null)
-                throw new ArgumentNullException("port");
-
-            //  Stop port forwarding before removing it
-            port.Stop();
-
-            DetachForwardedPort(port);
-            _forwardedPorts.Remove(port);
-        }
-
-        private void AttachForwardedPort(ForwardedPort port)
-        {
-            if (port.Session != null && port.Session != Session)
-                throw new InvalidOperationException("Forwarded port is already added to a different client.");
-
-            port.Session = Session;
-        }
-
-        private static void DetachForwardedPort(ForwardedPort port)
-        {
-            port.Session = null;
-        }
 
         /// <summary>
         /// Creates the command to be executed.
@@ -440,21 +359,6 @@ namespace Renci.SshNet
             EnsureSessionIsOpen();
 
             return new ShellStream(Session, terminalName, columns, rows, width, height, bufferSize, terminalModeValues);
-        }
-
-        /// <summary>
-        /// Stops forwarded ports.
-        /// </summary>
-        protected override void OnDisconnected()
-        {
-            base.OnDisconnected();
-
-            for (var i = _forwardedPorts.Count - 1; i >= 0; i--)
-            {
-                var port = _forwardedPorts[i];
-                DetachForwardedPort(port);
-                _forwardedPorts.RemoveAt(i);
-            }
         }
 
         /// <summary>

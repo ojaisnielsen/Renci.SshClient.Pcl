@@ -1,9 +1,12 @@
 ﻿using System;
 using System.Text;
 using Renci.SshNet.Channels;
-using System.IO;
+//using System.IO;
+using Windows.Storage;
 using Renci.SshNet.Common;
 using System.Text.RegularExpressions;
+using Windows.Storage.Streams;
+using System.IO;
 
 namespace Renci.SshNet
 {
@@ -22,7 +25,7 @@ namespace Renci.SshNet
         /// <param name="path">The path.</param>
         /// <exception cref="ArgumentNullException"><paramref name="fileInfo" /> is null.</exception>
         /// <exception cref="ArgumentException"><paramref name="path"/> is null or empty.</exception>
-        public void Upload(FileInfo fileInfo, string path)
+        public void Upload(IStorageFile fileInfo, string path)
         {
             if (fileInfo == null)
                 throw new ArgumentNullException("fileInfo");
@@ -58,7 +61,7 @@ namespace Renci.SshNet
         /// <param name="path">The path.</param>
         /// <exception cref="ArgumentNullException">fileSystemInfo</exception>
         /// <exception cref="ArgumentException"><paramref name="path"/> is null or empty.</exception>
-        public void Upload(DirectoryInfo directoryInfo, string path)
+        public async void Upload(IStorageFolder directoryInfo, string path)
         {
             if (directoryInfo == null)
                 throw new ArgumentNullException("directoryInfo");
@@ -79,8 +82,8 @@ namespace Renci.SshNet
                 //  Send channel command request
                 channel.SendExecRequest(string.Format("scp -rt \"{0}\"", path));
                 CheckReturnCode(input);
-
-                InternalSetTimestamp(channel, input, directoryInfo.LastWriteTimeUtc, directoryInfo.LastAccessTimeUtc);
+                var directoryProperties = await directoryInfo.GetBasicPropertiesAsync();
+                InternalSetTimestamp(channel, input, directoryProperties.DateModified.DateTime, directoryProperties.DateModified.DateTime);
                 SendData(channel, string.Format("D0755 0 {0}\n", Path.GetFileName(path)));
                 CheckReturnCode(input);
 
@@ -100,7 +103,7 @@ namespace Renci.SshNet
         /// <param name="fileInfo">Local file information.</param>
         /// <exception cref="ArgumentNullException"><paramref name="fileInfo"/> is null.</exception>
         /// <exception cref="ArgumentException"><paramref name="filename"/> is null or empty.</exception>
-        public void Download(string filename, FileInfo fileInfo)
+        public void Download(string filename, IStorageFile fileInfo)
         {
             if (string.IsNullOrEmpty(filename))
                 throw new ArgumentException("filename");
@@ -135,7 +138,7 @@ namespace Renci.SshNet
         /// <param name="directoryInfo">Local directory information.</param>
         /// <exception cref="ArgumentException"><paramref name="directoryName"/> is null or empty.</exception>
         /// <exception cref="ArgumentNullException"><paramref name="directoryInfo"/> is null.</exception>
-        public void Download(string directoryName, DirectoryInfo directoryInfo)
+        public void Download(string directoryName, IStorageFolder directoryInfo)
         {
             if (string.IsNullOrEmpty(directoryName))
                 throw new ArgumentException("directoryName");
@@ -163,29 +166,31 @@ namespace Renci.SshNet
             }
         }
 
-        private void InternalUpload(IChannelSession channel, Stream input, FileInfo fileInfo, string filename)
+        private async void InternalUpload(IChannelSession channel, Stream input, IStorageFile fileInfo, string filename)
         {
-            InternalSetTimestamp(channel, input, fileInfo.LastWriteTimeUtc, fileInfo.LastAccessTimeUtc);
-            using (var source = fileInfo.OpenRead())
+            var fileProperties = await fileInfo.GetBasicPropertiesAsync();
+            InternalSetTimestamp(channel, input, fileProperties.DateModified.DateTime, fileProperties.DateModified.DateTime);
+            using (var source = await fileInfo.OpenStreamForReadAsync())
             {
                 InternalUpload(channel, input, source, filename);
             }
         }
 
-        private void InternalUpload(IChannelSession channel, Stream input, DirectoryInfo directoryInfo)
+        private async void InternalUpload(IChannelSession channel, Stream input, IStorageFolder directoryInfo)
         {
-            //  Upload files
-            var files = directoryInfo.GetFiles();
+            //  Upload file
+            var files = await directoryInfo.GetFilesAsync();
             foreach (var file in files)
             {
                 InternalUpload(channel, input, file, file.Name);
             }
 
             //  Upload directories
-            var directories = directoryInfo.GetDirectories();
+            var directories = await directoryInfo.GetFoldersAsync();
             foreach (var directory in directories)
             {
-                InternalSetTimestamp(channel, input, directoryInfo.LastWriteTimeUtc, directoryInfo.LastAccessTimeUtc);
+                var directoryProperties = await directory.GetBasicPropertiesAsync();
+                InternalSetTimestamp(channel, input, directoryProperties.DateModified.DateTime, directoryProperties.DateModified.DateTime);
                 SendData(channel, string.Format("D0755 0 {0}\n", directory.Name));
                 CheckReturnCode(input);
 
@@ -196,12 +201,11 @@ namespace Renci.SshNet
             }
         }
 
-        private void InternalDownload(IChannelSession channel, Stream input, FileSystemInfo fileSystemInfo)
+        private async void InternalDownload(IChannelSession channel, Stream input, IStorageItem fileSystemInfo)
         {
             var modifiedTime = DateTime.Now;
             var accessedTime = DateTime.Now;
-
-            var startDirectoryFullName = fileSystemInfo.FullName;
+            var startDirectoryFullName = fileSystemInfo.Path;
             var currentDirectoryFullName = startDirectoryFullName;
             var directoryCounter = 0;
 
@@ -214,8 +218,7 @@ namespace Renci.SshNet
                     SendConfirmation(channel); //  Send reply
 
                     directoryCounter--;
-
-                    currentDirectoryFullName = new DirectoryInfo(currentDirectoryFullName).Parent.FullName;
+                    currentDirectoryFullName = Path.GetDirectoryName(currentDirectoryFullName);
 
                     if (directoryCounter == 0)
                         break;
@@ -231,22 +234,20 @@ namespace Renci.SshNet
                     var mode = long.Parse(match.Result("${mode}"));
                     var filename = match.Result("${filename}");
 
-                    DirectoryInfo newDirectoryInfo;
+                    IStorageFolder newDirectoryInfo;
                     if (directoryCounter > 0)
                     {
-                        newDirectoryInfo = Directory.CreateDirectory(string.Format("{0}{1}{2}", currentDirectoryFullName, Path.DirectorySeparatorChar, filename));
-                        newDirectoryInfo.LastAccessTime = accessedTime;
-                        newDirectoryInfo.LastWriteTime = modifiedTime;
+                        newDirectoryInfo = await (await StorageFolder.GetFolderFromPathAsync(currentDirectoryFullName)).CreateFolderAsync(filename);
                     }
                     else
                     {
                         //  Dont create directory for first level
-                        newDirectoryInfo = fileSystemInfo as DirectoryInfo;
+                        newDirectoryInfo = fileSystemInfo as IStorageFolder;
                     }
 
                     directoryCounter++;
 
-                    currentDirectoryFullName = newDirectoryInfo.FullName;
+                    currentDirectoryFullName = newDirectoryInfo.Path;
                     continue;
                 }
 
@@ -260,18 +261,15 @@ namespace Renci.SshNet
                     var length = long.Parse(match.Result("${length}"));
                     var fileName = match.Result("${filename}");
 
-                    var fileInfo = fileSystemInfo as FileInfo;
+                    var fileInfo = fileSystemInfo as IStorageFile;
 
                     if (fileInfo == null)
-                        fileInfo = new FileInfo(string.Format("{0}{1}{2}", currentDirectoryFullName, Path.DirectorySeparatorChar, fileName));
+                        fileInfo = await StorageFile.GetFileFromPathAsync(Path.Combine(currentDirectoryFullName, fileName));
 
-                    using (var output = fileInfo.OpenWrite())
+                    using (var output = await fileInfo.OpenStreamForWriteAsync())
                     {
                         InternalDownload(channel, input, output, fileName, length);
                     }
-
-                    fileInfo.LastAccessTime = accessedTime;
-                    fileInfo.LastWriteTime = modifiedTime;
 
                     if (directoryCounter == 0)
                         break;
@@ -299,7 +297,7 @@ namespace Renci.SshNet
 
         partial void SendData(IChannelSession channel, string command)
         {
-            channel.SendData(Encoding.Default.GetBytes(command));
+            channel.SendData(Encoding.UTF8.GetBytes(command));
         }
     }
 }

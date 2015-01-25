@@ -1,7 +1,6 @@
 ﻿using System.Globalization;
 using System.Linq;
 using System;
-using System.Net.Sockets;
 using System.Net;
 using Renci.SshNet.Common;
 using System.Threading;
@@ -16,13 +15,6 @@ namespace Renci.SshNet
         private const byte Null = 0x00;
         private const byte CarriageReturn = 0x0d;
         private const byte LineFeed = 0x0a;
-
-        private readonly TraceSource _log =
-#if DEBUG
-            new TraceSource("SshNet.Logging", SourceLevels.All);
-#else
-            new TraceSource("SshNet.Logging");
-#endif
 
         /// <summary>
         /// Holds the lock object to ensure read access to the socket is synchronized.
@@ -160,19 +152,20 @@ namespace Renci.SshNet
             }
             while (!(buffer.Count > 0 && (buffer[buffer.Count - 1] == LineFeed || buffer[buffer.Count - 1] == Null)));
 
-            if (buffer.Count == 0)
+            var bytes = buffer.ToArray();
+            if (bytes.Length == 0)
                 response = null;
-            else if (buffer.Count == 1 && buffer[buffer.Count - 1] == 0x00)
+            else if (bytes.Length == 1 && bytes[bytes.Length - 1] == 0x00)
                 // return an empty version string if the buffer consists of only a 0x00 character
                 response = string.Empty;
-            else if (buffer.Count > 1 && buffer[buffer.Count - 2] == CarriageReturn)
+            else if (bytes.Length > 1 && bytes[bytes.Length - 2] == CarriageReturn)
                 // strip trailing CRLF
-                response = encoding.GetString(buffer.Take(buffer.Count - 2).ToArray());
-            else if (buffer.Count > 1 && buffer[buffer.Count - 1] == LineFeed)
+                response = encoding.GetString(bytes, 0, bytes.Length - 2);
+            else if (bytes.Length > 1 && bytes[bytes.Length - 1] == LineFeed)
                 // strip trailing LF
-                response = encoding.GetString(buffer.Take(buffer.Count - 1).ToArray());
+                response = encoding.GetString(bytes, 0, bytes.Length - 1);
             else
-                response = encoding.GetString(buffer.ToArray());
+                response = encoding.GetString(bytes, 0, bytes.Length);
         }
 
         /// <summary>
@@ -270,7 +263,7 @@ namespace Renci.SshNet
         [Conditional("DEBUG")]
         partial void Log(string text)
         {
-            _log.TraceEvent(TraceEventType.Verbose, 1, text);
+            throw new Exception("DEBUG: " + text);
         }
 
 #if ASYNC_SOCKET_READ

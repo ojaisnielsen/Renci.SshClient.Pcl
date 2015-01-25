@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Linq;
 using System.Net;
-using System.Net.Sockets;
 using System.Threading;
 using Renci.SshNet.Common;
 using Renci.SshNet.Messages.Connection;
+using Windows.Networking.Sockets;
 
 namespace Renci.SshNet.Channels
 {
@@ -17,8 +17,7 @@ namespace Renci.SshNet.Channels
 
         private EventWaitHandle _channelOpen = new AutoResetEvent(false);
         private EventWaitHandle _channelData = new AutoResetEvent(false);
-        private IForwardedPort _forwardedPort;
-        private Socket _socket;
+        private StreamSocket _socket;
 
         /// <summary>
         /// Initializes a new <see cref="ChannelDirectTcpip"/> instance.
@@ -43,7 +42,7 @@ namespace Renci.SshNet.Channels
             get { return ChannelTypes.DirectTcpip; }
         }
 
-        public void Open(string remoteHost, uint port, IForwardedPort forwardedPort, Socket socket)
+        public void Open(string remoteHost, uint port, StreamSocket socket)
         {
             if (IsOpen)
                 throw new SshException("Channel is already open.");
@@ -51,29 +50,15 @@ namespace Renci.SshNet.Channels
                 throw new SshException("Session is not connected.");
 
             _socket = socket;
-            _forwardedPort = forwardedPort;
-            _forwardedPort.Closing += ForwardedPort_Closing;
 
-            var ep = socket.RemoteEndPoint as IPEndPoint;
+            var ep = socket.Information;
 
             // open channel
             SendMessage(new ChannelOpenMessage(LocalChannelNumber, LocalWindowSize, LocalPacketSize,
-                new DirectTcpipChannelInfo(remoteHost, port, ep.Address.ToString(), (uint) ep.Port)));
+                new DirectTcpipChannelInfo(remoteHost, port, ep.RemoteAddress.ToString(), uint.Parse(ep.RemotePort))));
 
             //  Wait for channel to open
             WaitOnHandle(_channelOpen);
-        }
-
-        /// <summary>
-        /// Occurs as the forwarded port is being stopped.
-        /// </summary>
-        private void ForwardedPort_Closing(object sender, EventArgs eventArgs)
-        {
-            // signal to the client that we will not send anything anymore; this will also interrupt the
-            // blocking receive in Bind if the client sends FIN/ACK in time
-            //
-            // if the FIN/ACK is not sent in time, the socket will be closed in Close(bool)
-            ShutdownSocket(SocketShutdown.Send);
         }
 
         /// <summary>

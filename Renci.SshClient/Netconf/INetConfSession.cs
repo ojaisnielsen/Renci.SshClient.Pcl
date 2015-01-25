@@ -1,4 +1,4 @@
-﻿using System.Xml;
+﻿using Windows.Data.Xml.Dom;
 
 namespace Renci.SshNet.NetConf
 {

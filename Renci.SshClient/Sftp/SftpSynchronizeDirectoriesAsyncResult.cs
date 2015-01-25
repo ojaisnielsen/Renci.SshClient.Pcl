@@ -2,13 +2,14 @@
 using System.Collections.Generic;
 using Renci.SshNet.Common;
 using System.IO;
+using Windows.Storage;
 
 namespace Renci.SshNet.Sftp
 {
     /// <summary>
     /// Encapsulates the results of an asynchronous directory synchronization operation.
     /// </summary>
-    public class SftpSynchronizeDirectoriesAsyncResult : AsyncResult<IEnumerable<FileInfo>>
+    public class SftpSynchronizeDirectoriesAsyncResult : AsyncResult<IEnumerable<IStorageFile>>
     {
         /// <summary>
         /// Gets the number of files read so far.

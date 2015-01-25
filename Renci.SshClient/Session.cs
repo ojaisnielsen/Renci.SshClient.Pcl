@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
-using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -18,9 +17,39 @@ using Renci.SshNet.Security;
 using System.Globalization;
 using Renci.SshNet.Security.Cryptography;
 using ASCIIEncoding = Renci.SshNet.Common.ASCIIEncoding;
+using Windows.Security.Cryptography;
+using Windows.Networking.Sockets;
+using System.Net.Sockets;
 
 namespace Renci.SshNet
 {
+    public class SocketWrapper : IDisposable
+    {
+        private readonly StreamSocket StreamSocket = new StreamSocket();
+
+        public SocketWrapper()
+        {
+            var task = StreamSocket.ConnectAsync(null).AsTask();
+            task.Wait();
+            if (task.Exception != null)
+            {
+                throw task.Exception.InnerException;
+            }
+
+            
+
+            this.Connected = true;
+        }
+
+        public bool Connected { get; private set; }
+
+        public void Dispose() 
+        {
+            this.StreamSocket.Dispose();
+            this.Connected = false;
+        }
+    }
+
     /// <summary>
     /// Provides functionality to connect and interact with SSH server.
     /// </summary>
@@ -63,15 +92,7 @@ namespace Renci.SshNet
         /// </value>
         private const int LocalChannelDataPacketSize = 1024*64;
 
-#if !TUNING
-        private static readonly RNGCryptoServiceProvider Randomizer = new RNGCryptoServiceProvider();
-#endif
-
-#if SILVERLIGHT
         private static readonly Regex ServerVersionRe = new Regex("^SSH-(?<protoversion>[^-]+)-(?<softwareversion>.+)( SP.+)?$");
-#else
-        private static readonly Regex ServerVersionRe = new Regex("^SSH-(?<protoversion>[^-]+)-(?<softwareversion>.+)( SP.+)?$", RegexOptions.Compiled);
-#endif
 
         /// <summary>
         /// Controls how many authentication attempts can take place at the same time.
@@ -89,7 +110,7 @@ namespace Renci.SshNet
         /// <summary>
         /// Holds connection socket.
         /// </summary>
-        private Socket _socket;
+        private SocketWrapper _socket;
 
         /// <summary>
         /// Holds locker object for the socket
@@ -488,8 +509,7 @@ namespace Renci.SshNet
                 throw new ArgumentNullException("serviceFactory");
 
             ConnectionInfo = connectionInfo;
-            //this.ClientVersion = string.Format(CultureInfo.CurrentCulture, "SSH-2.0-Renci.SshNet.SshClient.{0}", this.GetType().Assembly.GetName().Version);
-            ClientVersion = "SSH-2.0-Renci.SshNet.SshClient.0.0.1";
+            ClientVersion = this.GetType().AssemblyQualifiedName;
             _serviceFactory = serviceFactory;
             _messageListenerCompleted = new ManualResetEvent(true);
         }
@@ -769,7 +789,7 @@ namespace Renci.SshNet
         /// <exception cref="InvalidOperationException">The size of the packet exceeds the maximum size defined by the protocol.</exception>
         internal void SendMessage(Message message)
         {
-            if (_socket == null || !_socket.CanWrite())
+            if (_socket == null || !_socket.Connected)
                 throw new SshConnectionException("Client not connected.");
 
             if (_keyExchangeInProgress && !(message is IKeyExchangedAllowed))
@@ -783,9 +803,6 @@ namespace Renci.SshNet
             //  Messages can be sent by different thread so we need to synchronize it
             var paddingMultiplier = _clientCipher == null ? (byte)8 : Math.Max((byte)8, _serverCipher.MinimumSize);    //    Should be recalculate base on cipher min length if cipher specified
 
-#if TUNING
-            var packetData = message.GetPacket(paddingMultiplier, _clientCompression);
-#else
             var messageData = message.GetBytes();
 
             if (_clientCompression != null)
@@ -813,10 +830,10 @@ namespace Renci.SshNet
             messageData.CopyTo(packetData, 4 + 1);
 
             //  Add random padding
-            var paddingBytes = new byte[paddingLength];
-            Randomizer.GetBytes(paddingBytes);
+            byte[] paddingBytes;
+            var randomBuffer = CryptographicBuffer.GenerateRandom(paddingLength);
+            CryptographicBuffer.CopyToByteArray(randomBuffer, out paddingBytes);
             paddingBytes.CopyTo(packetData, 4 + 1 + messageData.Length);
-#endif
 
             //  Lock handling of _outboundPacketSequence since it must be sent sequently to server
             lock (_socketLock)
@@ -824,23 +841,10 @@ namespace Renci.SshNet
                 if (_socket == null || !_socket.Connected)
                     throw new SshConnectionException("Client not connected.");
 
-#if TUNING
-                byte[] hash = null;
-                var packetDataOffset = 4; // first four bytes are reserved for outbound packet sequence
-
-                if (_clientMac != null)
-                {
-                    // write outbound packet sequence to start of packet data
-                    _outboundPacketSequence.Write(packetData, 0);
-                    //  calculate packet hash
-                    hash = _clientMac.ComputeHash(packetData);
-                }
-#else
                 //  Calculate packet hash
                 var hashData = new byte[4 + packetData.Length];
                 _outboundPacketSequence.GetBytes().CopyTo(hashData, 0);
                 packetData.CopyTo(hashData, 4);
-#endif
 
                 //  Encrypt packet data
                 if (_clientCipher != null)
@@ -858,31 +862,18 @@ namespace Renci.SshNet
                     throw new InvalidOperationException(string.Format(CultureInfo.CurrentCulture, "Packet is too big. Maximum packet size is {0} bytes.", MaximumSshPacketSize));
                 }
 
-#if TUNING
-                var packetLength = packetData.Length - packetDataOffset;
-                if (hash == null)
-                {
-                    SocketWrite(packetData, packetDataOffset, packetLength);
-                }
-#else
                 if (_clientMac == null)
                 {
                     SocketWrite(packetData);
                 }
-#endif
+
                 else
                 {
-#if TUNING
-                    var data = new byte[packetLength + (_clientMac.HashSize / 8)];
-                    Buffer.BlockCopy(packetData, packetDataOffset, data, 0, packetLength);
-                    Buffer.BlockCopy(hash, 0, data, packetLength, hash.Length);
-#else
                     var hash = _clientMac.ComputeHash(hashData.ToArray());
 
                     var data = new byte[packetData.Length + _clientMac.HashSize / 8];
                     packetData.CopyTo(data, 0);
                     hash.CopyTo(data, packetData.Length);
-#endif
 
                     SocketWrite(data);
                 }
@@ -917,7 +908,7 @@ namespace Renci.SshNet
                 Log(string.Format("Failure sending message server '{0}': '{1}' => {2}", message.GetType().Name, message, ex));
                 return false;
             }
-            catch (SocketException ex)
+            catch (Exception ex)
             {
                 Log(string.Format("Failure sending message server '{0}': '{1}' => {2}", message.GetType().Name, message, ex));
                 return false;
@@ -997,16 +988,9 @@ namespace Renci.SshNet
 
             //  Read rest of the packet data
             var bytesToRead = (int)(packetLength - (blockSize - 4));
-
-#if TUNING
-            var data = new byte[bytesToRead + blockSize + inboundPacketSequenceLength];
-            _inboundPacketSequence.Write(data, 0);
-            Buffer.BlockCopy(firstBlock, 0, data, inboundPacketSequenceLength, firstBlock.Length);
-#else
             var data = new byte[bytesToRead + blockSize];
 
             firstBlock.CopyTo(data, 0);
-#endif
 
             byte[] serverHash = null;
             if (_serverMac != null)
@@ -1031,11 +1015,7 @@ namespace Renci.SshNet
                     {
                         nextBlocks = _serverCipher.Decrypt(nextBlocks);
                     }
-#if TUNING
-                    nextBlocks.CopyTo(data, blockSize + inboundPacketSequenceLength);
-#else
                     nextBlocks.CopyTo(data, blockSize);
-#endif
                 }
             }
 
@@ -2128,7 +2108,7 @@ namespace Renci.SshNet
                 if (headerMatch.Success)
                 {
                     var fieldName = headerMatch.Result("${fieldName}");
-                    if (fieldName.Equals("Content-Length", StringComparison.InvariantCultureIgnoreCase))
+                    if (fieldName.Equals("Content-Length", StringComparison.Ordinal))
                     {
                         contentLength = int.Parse(headerMatch.Result("${fieldValue}"));
                     }
@@ -2342,24 +2322,6 @@ namespace Renci.SshNet
         IChannelDirectTcpip ISession.CreateChannelDirectTcpip()
         {
             return new ChannelDirectTcpip(this, NextChannelNumber, InitialLocalWindowSize, LocalChannelDataPacketSize);
-        }
-
-        /// <summary>
-        /// Creates a "forwarded-tcpip" SSH channel.
-        /// </summary>
-        /// <returns>
-        /// A new "forwarded-tcpip" SSH channel.
-        /// </returns>
-        IChannelForwardedTcpip ISession.CreateChannelForwardedTcpip(uint remoteChannelNumber, uint remoteWindowSize,
-            uint remoteChannelDataPacketSize)
-        {
-            return new ChannelForwardedTcpip(this,
-                                             NextChannelNumber,
-                                             InitialLocalWindowSize,
-                                             LocalChannelDataPacketSize,
-                                             remoteChannelNumber,
-                                             remoteWindowSize,
-                                             remoteChannelDataPacketSize);
         }
 
         /// <summary>

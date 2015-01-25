@@ -14,8 +14,6 @@ namespace Renci.SshNet.Messages
     /// </summary>
     public abstract class Message : SshData
     {
-        private static readonly RNGCryptoServiceProvider Randomizer = new RNGCryptoServiceProvider();
-
         /// <summary>
         /// Gets the index that represents zero in current data type.
         /// </summary>

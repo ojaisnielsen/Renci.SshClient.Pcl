@@ -22,15 +22,5 @@ namespace Renci.SshNet
         {
             return string.IsNullOrWhiteSpace(value);
         }
-
-        internal static bool CanRead(this Socket socket)
-        {
-            return socket.Connected && socket.Poll(-1, SelectMode.SelectRead) && socket.Available > 0;
-        }
-
-        internal static bool CanWrite(this Socket socket)
-        {
-            return socket.Connected && socket.Poll(-1, SelectMode.SelectWrite);
-        }
     }
 }

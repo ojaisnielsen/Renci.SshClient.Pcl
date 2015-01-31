@@ -22,7 +22,7 @@ namespace Renci.SshNet
         /// <param name="action">The action to execute.</param>
         partial void ExecuteThread(Action action)
         {
-            ThreadPool.QueueUserWorkItem(o => action());
+            Task.Run(action);
         }
 
         partial void InternalRegisterMessage(string messageName)

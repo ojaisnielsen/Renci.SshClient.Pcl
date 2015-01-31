@@ -5,6 +5,7 @@ using System.Threading;
 using Renci.SshNet.Channels;
 using Renci.SshNet.Common;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace Renci.SshNet
 {
@@ -142,13 +143,13 @@ namespace Renci.SshNet
 
                     while (_channel.IsOpen)
                     {
-                        var asyncResult = _input.BeginRead(buffer, 0, buffer.Length, delegate(IAsyncResult result)
+
+                        var task = _input.ReadAsync(buffer, 0, buffer.Length).ContinueWith(readTask => 
                         {
-                            //  If input stream is closed and disposed already dont finish reading the stream
                             if (_input == null)
                                 return;
 
-                            var read = _input.EndRead(result);
+                            var read = readTask.Result;
                             if (read > 0)
                             {
 #if TUNING
@@ -157,12 +158,11 @@ namespace Renci.SshNet
                                 _channel.SendData(buffer.Take(read).ToArray());
 #endif
                             }
+                        });
 
-                        }, null);
+                        Task.WaitAny(task, Task.Run(() => { _channelClosedWaitHandle.WaitOne(); }));
 
-                        EventWaitHandle.WaitAny(new WaitHandle[] { asyncResult.AsyncWaitHandle, _channelClosedWaitHandle });
-
-                        if (asyncResult.IsCompleted)
+                        if (task.IsCompleted)
                             continue;
                         break;
                     }

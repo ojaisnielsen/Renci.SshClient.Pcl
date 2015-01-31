@@ -20,6 +20,8 @@ using ASCIIEncoding = Renci.SshNet.Common.ASCIIEncoding;
 using Windows.Security.Cryptography;
 using Windows.Networking.Sockets;
 using System.Net.Sockets;
+using Windows.Networking;
+using Windows.Storage.Streams;
 
 namespace Renci.SshNet
 {
@@ -29,24 +31,60 @@ namespace Renci.SshNet
 
         public SocketWrapper()
         {
-            var task = StreamSocket.ConnectAsync(null).AsTask();
-            task.Wait();
-            if (task.Exception != null)
-            {
-                throw task.Exception.InnerException;
-            }
-
-            
-
             this.Connected = true;
+            this.CanWrite = true;
+            this.CanRead = true;
         }
 
         public bool Connected { get; private set; }
+
+        public bool CanWrite { get; private set; }
+
+        public bool CanRead { get; private set; }
+
+        public Windows.Foundation.IAsyncAction ConnectAsync(EndpointPair endpointPair)
+        {
+            return StreamSocket.ConnectAsync(endpointPair);
+        }
+
+        public StreamSocketInformation Information
+        {
+            get { return StreamSocket.Information; }
+        }
+
+        public StreamSocketControl Control
+        {
+            get { return StreamSocket.Control; }
+        }
+
+        public IInputStream InputStream
+        {
+            get { return StreamSocket.InputStream; }
+        }
+
+        public IOutputStream OutputStream
+        {
+            get { return StreamSocket.OutputStream; }
+        }
+
+        public void ShutDownSend()
+        {
+            StreamSocket.OutputStream.Dispose();
+            CanWrite = false;
+        }
+
+        public void ShutDownReceive()
+        {
+            StreamSocket.InputStream.Dispose();
+            CanRead = false;
+        }
 
         public void Dispose() 
         {
             this.StreamSocket.Dispose();
             this.Connected = false;
+            this.CanWrite = false;
+            this.CanRead = false;
         }
     }
 
@@ -278,9 +316,7 @@ namespace Renci.SshNet
                 if (_messageListenerCompleted == null || _messageListenerCompleted.WaitOne(0))
                     return false;
 
-                var isSocketConnected = false;
-                IsSocketConnected(ref isSocketConnected);
-                return isSocketConnected;
+                return _socket.CanRead;
             }
         }
 
@@ -509,7 +545,7 @@ namespace Renci.SshNet
                 throw new ArgumentNullException("serviceFactory");
 
             ConnectionInfo = connectionInfo;
-            ClientVersion = this.GetType().AssemblyQualifiedName;
+            ClientVersion = "SSH-2.0-Renci.SshNet.SshClient";
             _serviceFactory = serviceFactory;
             _messageListenerCompleted = new ManualResetEvent(true);
         }
@@ -789,7 +825,7 @@ namespace Renci.SshNet
         /// <exception cref="InvalidOperationException">The size of the packet exceeds the maximum size defined by the protocol.</exception>
         internal void SendMessage(Message message)
         {
-            if (_socket == null || !_socket.Connected)
+            if (_socket == null || !_socket.CanWrite)
                 throw new SshConnectionException("Client not connected.");
 
             if (_keyExchangeInProgress && !(message is IKeyExchangedAllowed))
@@ -803,6 +839,9 @@ namespace Renci.SshNet
             //  Messages can be sent by different thread so we need to synchronize it
             var paddingMultiplier = _clientCipher == null ? (byte)8 : Math.Max((byte)8, _serverCipher.MinimumSize);    //    Should be recalculate base on cipher min length if cipher specified
 
+#if TUNING
+            var packetData = message.GetPacket(paddingMultiplier, _clientCompression);
+#else
             var messageData = message.GetBytes();
 
             if (_clientCompression != null)
@@ -834,6 +873,7 @@ namespace Renci.SshNet
             var randomBuffer = CryptographicBuffer.GenerateRandom(paddingLength);
             CryptographicBuffer.CopyToByteArray(randomBuffer, out paddingBytes);
             paddingBytes.CopyTo(packetData, 4 + 1 + messageData.Length);
+#endif
 
             //  Lock handling of _outboundPacketSequence since it must be sent sequently to server
             lock (_socketLock)
@@ -841,10 +881,23 @@ namespace Renci.SshNet
                 if (_socket == null || !_socket.Connected)
                     throw new SshConnectionException("Client not connected.");
 
-                //  Calculate packet hash
-                var hashData = new byte[4 + packetData.Length];
-                _outboundPacketSequence.GetBytes().CopyTo(hashData, 0);
-                packetData.CopyTo(hashData, 4);
+#if TUNING
+                byte[] hash = null;
+                var packetDataOffset = 4; // first four bytes are reserved for outbound packet sequence
+
+                if (_clientMac != null)
+                {
+                    // write outbound packet sequence to start of packet data
+                    _outboundPacketSequence.Write(packetData, 0);
+                    //  calculate packet hash
+                    hash = _clientMac.ComputeHash(packetData);
+                }
+#else
+                 //  Calculate packet hash
+                 var hashData = new byte[4 + packetData.Length];
+                 _outboundPacketSequence.GetBytes().CopyTo(hashData, 0);
+                 packetData.CopyTo(hashData, 4);
+#endif
 
                 //  Encrypt packet data
                 if (_clientCipher != null)
@@ -862,18 +915,32 @@ namespace Renci.SshNet
                     throw new InvalidOperationException(string.Format(CultureInfo.CurrentCulture, "Packet is too big. Maximum packet size is {0} bytes.", MaximumSshPacketSize));
                 }
 
-                if (_clientMac == null)
+#if TUNING
+                var packetLength = packetData.Length - packetDataOffset;
+                if (hash == null)
                 {
-                    SocketWrite(packetData);
+                    SocketWrite(packetData, packetDataOffset, packetLength);
                 }
+#else
+                 if (_clientMac == null)
+                 {
+                     SocketWrite(packetData);
+                 }
+#endif
 
                 else
                 {
-                    var hash = _clientMac.ComputeHash(hashData.ToArray());
-
-                    var data = new byte[packetData.Length + _clientMac.HashSize / 8];
-                    packetData.CopyTo(data, 0);
-                    hash.CopyTo(data, packetData.Length);
+#if TUNING
+                    var data = new byte[packetLength + (_clientMac.HashSize / 8)];
+                    System.Buffer.BlockCopy(packetData, packetDataOffset, data, 0, packetLength);
+                    System.Buffer.BlockCopy(hash, 0, data, packetLength, hash.Length);
+#else
+                     var hash = _clientMac.ComputeHash(hashData.ToArray());
+ 
+                     var data = new byte[packetData.Length + _clientMac.HashSize / 8];
+                     packetData.CopyTo(data, 0);
+                     hash.CopyTo(data, packetData.Length);
+#endif
 
                     SocketWrite(data);
                 }
@@ -910,6 +977,9 @@ namespace Renci.SshNet
             }
             catch (Exception ex)
             {
+                if (SocketError.GetStatus(ex.HResult) == SocketErrorStatus.Unknown)
+                    throw;
+
                 Log(string.Format("Failure sending message server '{0}': '{1}' => {2}", message.GetType().Name, message, ex));
                 return false;
             }
@@ -988,9 +1058,15 @@ namespace Renci.SshNet
 
             //  Read rest of the packet data
             var bytesToRead = (int)(packetLength - (blockSize - 4));
-            var data = new byte[bytesToRead + blockSize];
-
-            firstBlock.CopyTo(data, 0);
+#if TUNING
+            var data = new byte[bytesToRead + blockSize + inboundPacketSequenceLength];
+            _inboundPacketSequence.Write(data, 0);
+            System.Buffer.BlockCopy(firstBlock, 0, data, inboundPacketSequenceLength, firstBlock.Length);
+#else
+             var data = new byte[bytesToRead + blockSize];
+ 
+             firstBlock.CopyTo(data, 0);
+#endif
 
             byte[] serverHash = null;
             if (_serverMac != null)
@@ -1005,7 +1081,7 @@ namespace Renci.SshNet
 
                 if (serverHash != null)
                 {
-                    Buffer.BlockCopy(nextBlocks, nextBlocks.Length - serverHash.Length, serverHash, 0, serverHash.Length);
+                    System.Buffer.BlockCopy(nextBlocks, nextBlocks.Length - serverHash.Length, serverHash, 0, serverHash.Length);
                     nextBlocks = nextBlocks.Take(nextBlocks.Length - serverHash.Length).ToArray();
                 }
 
@@ -1015,7 +1091,11 @@ namespace Renci.SshNet
                     {
                         nextBlocks = _serverCipher.Decrypt(nextBlocks);
                     }
-                    nextBlocks.CopyTo(data, blockSize);
+#if TUNING
+                    nextBlocks.CopyTo(data, blockSize + inboundPacketSequenceLength);
+#else
+                     nextBlocks.CopyTo(data, blockSize);
+#endif
                 }
             }
 
@@ -1030,7 +1110,7 @@ namespace Renci.SshNet
             const int messagePayloadOffset = inboundPacketSequenceLength + 4 + 1;
 #else
             var messagePayload = new byte[messagePayloadLength];
-            Buffer.BlockCopy(data, 5, messagePayload, 0, messagePayload.Length);
+            System.Buffer.BlockCopy(data, 5, messagePayload, 0, messagePayload.Length);
 #endif
 
             //  Validate message against MAC
@@ -1650,7 +1730,7 @@ namespace Renci.SshNet
         {
             var buffer = new byte[length];
 
-            SocketRead(length, ref buffer);
+            SocketRead(length, ref buffer, ConnectionInfo.Timeout);
 
             return buffer;
         }
@@ -1762,7 +1842,7 @@ namespace Renci.SshNet
         /// <exception cref="SshConnectionException">The socket is closed.</exception>
         /// <exception cref="SshOperationTimeoutException">The read has timed-out.</exception>
         /// <exception cref="SocketException">The read failed.</exception>
-        partial void SocketRead(int length, ref byte[] buffer);
+        partial void SocketRead(int length, ref byte[] buffer, TimeSpan timeout);
 
         /// <summary>
         /// Performs a blocking read on the socket until a line is read.
@@ -1834,14 +1914,14 @@ namespace Renci.SshNet
         {
             var buffer = new byte[1];
 
-            SocketRead(1, ref buffer);
+            SocketRead(1, ref buffer, ConnectionInfo.Timeout);
 
             return buffer[0];
         }
 
         private void SocketWriteByte(byte data)
         {
-            SocketWrite(new[] {data});
+            SocketWrite(new[] { data });
         }
 
         private void ConnectSocks4()
@@ -1891,10 +1971,10 @@ namespace Renci.SshNet
             var dummyBuffer = new byte[4];
 
             //  Read 2 bytes to be ignored
-            SocketRead(2, ref dummyBuffer);
+            SocketRead(2, ref dummyBuffer, ConnectionInfo.Timeout);
 
             //  Read 4 bytes to be ignored
-            SocketRead(4, ref dummyBuffer);
+            SocketRead(4, ref dummyBuffer, ConnectionInfo.Timeout);
         }
 
         private void ConnectSocks5()
@@ -2039,10 +2119,10 @@ namespace Renci.SshNet
             switch (addressType)
             {
                 case 0x01:
-                    SocketRead(4, ref responseIp);
+                    SocketRead(4, ref responseIp, ConnectionInfo.Timeout);
                     break;
                 case 0x04:
-                    SocketRead(16, ref responseIp);
+                    SocketRead(16, ref responseIp, ConnectionInfo.Timeout);
                     break;
                 default:
                     throw new ProxyException(string.Format("Address type '{0}' is not supported.", addressType));
@@ -2051,7 +2131,7 @@ namespace Renci.SshNet
             var port = new byte[2];
 
             //  Read 2 bytes to be ignored
-            SocketRead(2, ref port);
+            SocketRead(2, ref port, ConnectionInfo.Timeout);
         }
 
         private void ConnectHttp()
@@ -2122,7 +2202,7 @@ namespace Renci.SshNet
                     if (contentLength > 0)
                     {
                         var contentBody = new byte[contentLength];
-                        SocketRead(contentLength, ref contentBody);
+                        SocketRead(contentLength, ref contentBody, ConnectionInfo.Timeout);
                     }
                     break;
                 }
@@ -2149,8 +2229,7 @@ namespace Renci.SshNet
 
                 // any timeout while disconnecting can be caused by loss of connectivity
                 // altogether and should be ignored
-                var socketException = exp as SocketException;
-                if (socketException != null && socketException.SocketErrorCode == SocketError.TimedOut)
+                if (SocketError.GetStatus(exp.HResult) == SocketErrorStatus.ConnectionTimedOut)
                     return;
             }
 

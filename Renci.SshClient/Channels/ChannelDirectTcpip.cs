@@ -5,6 +5,7 @@ using System.Threading;
 using Renci.SshNet.Common;
 using Renci.SshNet.Messages.Connection;
 using Windows.Networking.Sockets;
+using System.Net.Sockets;
 
 namespace Renci.SshNet.Channels
 {
@@ -17,7 +18,7 @@ namespace Renci.SshNet.Channels
 
         private EventWaitHandle _channelOpen = new AutoResetEvent(false);
         private EventWaitHandle _channelData = new AutoResetEvent(false);
-        private StreamSocket _socket;
+        private SocketWrapper _socket;
 
         /// <summary>
         /// Initializes a new <see cref="ChannelDirectTcpip"/> instance.
@@ -42,7 +43,7 @@ namespace Renci.SshNet.Channels
             get { return ChannelTypes.DirectTcpip; }
         }
 
-        public void Open(string remoteHost, uint port, StreamSocket socket)
+        public void Open(string remoteHost, uint port, SocketWrapper socket)
         {
             if (IsOpen)
                 throw new SshException("Channel is already open.");
@@ -55,7 +56,7 @@ namespace Renci.SshNet.Channels
 
             // open channel
             SendMessage(new ChannelOpenMessage(LocalChannelNumber, LocalWindowSize, LocalPacketSize,
-                new DirectTcpipChannelInfo(remoteHost, port, ep.RemoteAddress.ToString(), uint.Parse(ep.RemotePort))));
+                new DirectTcpipChannelInfo(remoteHost, port, ep.RemoteAddress.CanonicalName, uint.Parse(ep.RemotePort))));
 
             //  Wait for channel to open
             WaitOnHandle(_channelOpen);
@@ -92,21 +93,15 @@ namespace Renci.SshNet.Channels
                         break;
                     }
                 }
-                catch (SocketException exp)
+                catch (Exception exp)
                 {
-                    switch (exp.SocketErrorCode)
+                    switch (SocketError.GetStatus(exp.HResult))
                     {
-                        case SocketError.WouldBlock:
-                        case SocketError.IOPending:
-                        case SocketError.NoBufferSpaceAvailable:
-                            // socket buffer is probably empty, wait and try again
-                            Thread.Sleep(30);
-                            break;
-                        case SocketError.ConnectionAborted:
-                        case SocketError.ConnectionReset:
+                        case SocketErrorStatus.ConnectionResetByPeer:
+                        case SocketErrorStatus.SoftwareCausedConnectionAbort:
                             // connection was closed after receiving SSH_MSG_CHANNEL_CLOSE message
                             break;
-                        case SocketError.Interrupted:
+                        case SocketErrorStatus.ConnectionTimedOut:
                             // connection was closed because FIN/ACK was not received in time after
                             // shutting down the (send part of the) socket
                             break;
@@ -139,7 +134,7 @@ namespace Renci.SshNet.Channels
 
                 // closing a socket actually disposes the socket, so we can safely dereference
                 // the field to avoid entering the lock again later
-                _socket.Close();
+                _socket.Dispose();
                 _socket = null;
             }
         }
@@ -158,7 +153,18 @@ namespace Renci.SshNet.Channels
                 if (_socket == null || !_socket.Connected)
                     return;
 
-                _socket.Shutdown(how);
+                switch(how)
+                {
+                    case SocketShutdown.Receive:
+                        _socket.ShutDownReceive();
+                        break;
+                    case SocketShutdown.Send:
+                        _socket.ShutDownSend();
+                        break;
+                    case SocketShutdown.Both:
+                        _socket.Dispose();
+                        break;
+                }
             }
         }
 
@@ -169,12 +175,6 @@ namespace Renci.SshNet.Channels
         /// <param name="wait"><c>true</c> to wait for the SSH_MSG_CHANNEL_CLOSE message to be received from the server; otherwise, <c>false</c>.</param>
         protected override void Close(bool wait)
         {
-            if (_forwardedPort != null)
-            {
-                _forwardedPort.Closing -= ForwardedPort_Closing;
-                _forwardedPort = null;
-            }
-
             // signal to the client that we will not send anything anymore; this will also interrupt the
             // blocking receive in Bind if the client sends FIN/ACK in time
             //

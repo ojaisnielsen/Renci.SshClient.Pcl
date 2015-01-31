@@ -21,7 +21,7 @@
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
     <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <DefineConstants>TRACE;DEBUG;TUNING</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
@@ -29,7 +29,7 @@
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
     <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
+    <DefineConstants>TRACE;TUNING</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
@@ -75,6 +75,7 @@
     <Compile Include="Common\ExceptionEventArgs.cs" />
     <Compile Include="Common\Extensions.cs" />
     <Compile Include="Common\Extensions.NET.cs" />
+    <Compile Include="Common\Extensions.NET40.cs" />
     <Compile Include="Common\HostKeyEventArgs.cs" />
     <Compile Include="Common\NetConfServerException.cs" />
     <Compile Include="Common\ObjectIdentifier.cs" />
@@ -113,6 +114,7 @@
     <Compile Include="ISession.cs" />
     <Compile Include="ISubsystemSession.cs" />
     <Compile Include="KeyboardInteractiveAuthenticationMethod.cs" />
+    <Compile Include="KeyboardInteractiveAuthenticationMethod.NET40.cs" />
     <Compile Include="KeyboardInteractiveConnectionInfo.cs" />
     <Compile Include="MessageEventArgs.cs" />
     <Compile Include="Messages\Authentication\BannerMessage.cs" />
@@ -190,8 +192,8 @@
     <Compile Include="Netconf\INetConfSession.cs" />
     <Compile Include="Netconf\NetConfSession.cs" />
     <Compile Include="NoneAuthenticationMethod.cs" />
-    <Compile Include="NoneConnectionInfo.cs" />
     <Compile Include="PasswordAuthenticationMethod.cs" />
+    <Compile Include="PasswordAuthenticationMethod.NET40.cs" />
     <Compile Include="PasswordConnectionInfo.cs" />
     <Compile Include="PrivateKeyAuthenticationMethod.cs" />
     <Compile Include="PrivateKeyConnectionInfo.cs" />
@@ -257,8 +259,10 @@
     <Compile Include="ServiceFactory.NET.cs" />
     <Compile Include="Session.cs" />
     <Compile Include="Session.NET.cs" />
+    <Compile Include="Session.NET40.cs" />
     <Compile Include="SftpClient.cs" />
     <Compile Include="SftpClient.NET.cs" />
+    <Compile Include="SftpClient.NET40.cs" />
     <Compile Include="Sftp\Flags.cs" />
     <Compile Include="Sftp\ISftpSession.cs" />
     <Compile Include="Sftp\Requests\ExtendedRequests\FStatVfsRequest.cs" />
@@ -313,12 +317,19 @@
     <Compile Include="Sftp\SftpUploadAsyncResult.cs" />
     <Compile Include="Sftp\StatusCodes.cs" />
     <Compile Include="Shell.cs" />
+    <Compile Include="Shell.NET40.cs" />
     <Compile Include="ShellStream.cs" />
+    <Compile Include="ShellStream.NET40.cs" />
     <Compile Include="SshClient.cs" />
     <Compile Include="SshCommand.cs" />
+    <Compile Include="SshCommand.NET40.cs" />
     <Compile Include="SubsystemSession.cs" />
     <Compile Include="System.IO\FileAccess.cs" />
     <Compile Include="System.IO\FileMode.cs" />
+    <Compile Include="System.Net.Sockets\AddressFamily.cs" />
+    <Compile Include="System.Net.Sockets\SocketShutdown.cs" />
+    <Compile Include="System.Net\IPAddress.cs" />
+    <Compile Include="System.Net\IPv6Address.cs" />
     <Compile Include="System.Security.Cryptography\HashAlgorithm.cs" />
     <Compile Include="System.Security.Cryptography\KeyedHashAlgorithm.cs" />
   </ItemGroup>

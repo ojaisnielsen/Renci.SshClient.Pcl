@@ -209,14 +209,5 @@ namespace Renci.SshNet.Common
 
             return data;
         }
-
-        public override byte[] ToArray()
-        {
-            if (Capacity == Length)
-            {
-                return GetBuffer();
-            }
-            return base.ToArray();
-        }
     }
 }

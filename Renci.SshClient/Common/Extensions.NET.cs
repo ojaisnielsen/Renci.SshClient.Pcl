@@ -1,6 +1,9 @@
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading.Tasks;
+using Windows.Networking;
+using Windows.Networking.Sockets;
 
 namespace Renci.SshNet.Common
 {
@@ -22,22 +25,15 @@ namespace Renci.SshNet.Common
 
             return value.All(char.IsWhiteSpace);
         }
-        
-        internal static bool CanRead(this Socket socket)
-        {
-            return socket.Connected && socket.Poll(-1, SelectMode.SelectRead) && socket.Available > 0;
-        }
-
-        internal static bool CanWrite(this Socket socket)
-        {
-            return socket.Connected && socket.Poll(-1, SelectMode.SelectWrite);
-        }
 
         internal static IPAddress GetIPAddress(this string host)
         {
             IPAddress ipAddress;
             if (!IPAddress.TryParse(host, out ipAddress))
-                ipAddress = Dns.GetHostAddresses(host).First();
+            {
+                var endpointPairs = DatagramSocket.GetEndpointPairsAsync(new HostName(host), "0").GetResults();
+                ipAddress = IPAddress.Parse(endpointPairs[0].RemoteHostName.DisplayName); 
+            }
 
             return ipAddress;
         }

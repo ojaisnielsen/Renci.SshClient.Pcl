@@ -7,6 +7,7 @@ using Renci.SshNet.Common;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading.Tasks;
 
 namespace Renci.SshNet
 {
@@ -389,7 +390,7 @@ namespace Renci.SshNet
 
             while (b < 0)
             {
-                Thread.Sleep(100);
+                Task.Delay(100).Wait();
                 b = stream.ReadByte();
             }
 

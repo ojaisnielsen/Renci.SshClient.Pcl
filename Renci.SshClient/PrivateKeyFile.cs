@@ -12,6 +12,7 @@ using Renci.SshNet.Security.Cryptography.Ciphers;
 using Renci.SshNet.Security.Cryptography.Ciphers.Modes;
 using Renci.SshNet.Security.Cryptography.Ciphers.Paddings;
 using System.Diagnostics.CodeAnalysis;
+using Windows.Storage;
 
 namespace Renci.SshNet
 {
@@ -52,11 +53,7 @@ namespace Renci.SshNet
     public class PrivateKeyFile : IDisposable
     {
         private static readonly Regex PrivateKeyRegex = new Regex(@"^-+ *BEGIN (?<keyName>\w+( \w+)*) PRIVATE KEY *-+\r?\n((Proc-Type: 4,ENCRYPTED\r?\nDEK-Info: (?<cipherName>[A-Z0-9-]+),(?<salt>[A-F0-9]+)\r?\n\r?\n)|(Comment: ""?[^\r\n]*""?\r?\n))?(?<data>([a-zA-Z0-9/+=]{1,80}\r?\n)+)-+ *END \k<keyName> PRIVATE KEY *-+",
-#if SILVERLIGHT
             RegexOptions.Multiline);
-#else
-            RegexOptions.Compiled | RegexOptions.Multiline);
-#endif
 
         private Key _key;
 
@@ -97,9 +94,10 @@ namespace Renci.SshNet
             if (string.IsNullOrEmpty(fileName))
                 throw new ArgumentNullException("fileName");
 
-            using (var keyFile = File.Open(fileName, FileMode.Open, FileAccess.Read, FileShare.Read))
+            var keyFile = StorageFile.GetFileFromPathAsync(fileName).AsTask().Result;
+            using (var keyStream = keyFile.OpenReadAsync().AsTask().Result.AsStream())
             {
-                Open(keyFile, passPhrase);
+                Open(keyStream, passPhrase);
             }
         }
 

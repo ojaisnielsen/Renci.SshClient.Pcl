@@ -26,9 +26,9 @@ namespace Renci.SshNet
         /// <param name="destinationPath">The destination path.</param>
         /// <param name="searchPattern">The search pattern.</param>
         /// <returns>List of uploaded files.</returns>
-        public async Task<IEnumerable<IStorageFile>> SynchronizeDirectories(string sourcePath, string destinationPath, string searchPattern)
+        public IEnumerable<IStorageFile> SynchronizeDirectories(string sourcePath, string destinationPath, string searchPattern)
         {
-            return await InternalSynchronizeDirectories(sourcePath, destinationPath, searchPattern, null);
+            return InternalSynchronizeDirectories(sourcePath, destinationPath, searchPattern, null).Result;
         }
 
         /// <summary>
@@ -92,9 +92,17 @@ namespace Renci.SshNet
             if (destinationPath.IsNullOrWhiteSpace())
                 throw new ArgumentException("destinationPath");
 
-            var uploadedFiles = new List<IStorageFile>();
+            StorageFolder sourceDirectory;
+            try
+            {
+                sourceDirectory = await StorageFolder.GetFolderFromPathAsync(sourcePath);
+            }
+            catch (FileNotFoundException)
+            {
+                throw new FileNotFoundException(string.Format("Source directory not found: {0}", sourcePath));
+            }
 
-            var sourceDirectory = await StorageFolder.GetFolderFromPathAsync(sourcePath);
+            var uploadedFiles = new List<IStorageFile>();
 
             var searchRegex = new Regex(string.Join(string.Empty, searchPattern.Select(c => c == '*' ? ".*" : c == '?' ? ".?" : Regex.Escape(c.ToString()))));
 

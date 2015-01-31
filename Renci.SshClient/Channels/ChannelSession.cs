@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Threading;
 using Renci.SshNet.Common;
 using Renci.SshNet.Messages.Connection;
+using System.Threading.Tasks;
 
 namespace Renci.SshNet.Channels
 {
@@ -121,7 +122,7 @@ namespace Renci.SshNet.Channels
 
             //  This timeout needed since when channel is closed it does not immediately becomes available
             //  but it takes time for the server to clean up resource and allow new channels to be created.
-            Thread.Sleep(100);
+            Task.Delay(100).Wait();
         }
 
         protected override void Close(bool wait)

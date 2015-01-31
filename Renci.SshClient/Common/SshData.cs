@@ -17,11 +17,7 @@ namespace Renci.SshNet.Common
 
         internal static readonly Encoding Ascii = new ASCIIEncoding();
 
-#if SILVERLIGHT
         internal static readonly Encoding Utf8 = Encoding.UTF8;
-#else
-        internal static readonly Encoding Utf8 = Encoding.Default;
-#endif
 
 #if TUNING
         private SshDataStream _stream;

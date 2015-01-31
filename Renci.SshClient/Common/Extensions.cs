@@ -7,6 +7,8 @@ using System.Globalization;
 using System.Net;
 using Renci.SshNet.Messages;
 using Renci.SshNet.Messages.Connection;
+using System.Text;
+using Windows.Networking;
 
 namespace Renci.SshNet.Common
 {
@@ -158,11 +160,12 @@ namespace Renci.SshNet.Common
         /// <param name="bytes">The bytes.</param>
         internal static void DebugPrint(this IEnumerable<byte> bytes)
         {
+            var debugString = new StringBuilder();
             foreach (var b in bytes)
             {
-                Debug.Write(string.Format(CultureInfo.CurrentCulture, "0x{0:x2}, ", b));
+                debugString.AppendFormat("0x{0:x2}, ", b);
             }
-            Debug.WriteLine(string.Empty);
+            Debug.WriteLine(debugString);
         }
 #endif
 
@@ -269,23 +272,23 @@ namespace Renci.SshNet.Common
 
         internal static void ValidatePort(this uint value, string argument)
         {
-            if (value > IPEndPoint.MaxPort)
+            if (value > 65535)
                 throw new ArgumentOutOfRangeException(argument,
                     string.Format(CultureInfo.InvariantCulture, "Specified value cannot be greater than {0}.",
-                        IPEndPoint.MaxPort));
+                        65535));
         }
 
         internal static void ValidatePort(this int value, string argument)
         {
-            if (value < IPEndPoint.MinPort)
+            if (value < 0)
                 throw new ArgumentOutOfRangeException(argument,
                     string.Format(CultureInfo.InvariantCulture, "Specified value cannot be less than {0}.",
-                        IPEndPoint.MinPort));
+                        0));
 
-            if (value > IPEndPoint.MaxPort)
+            if (value > 65535)
                 throw new ArgumentOutOfRangeException(argument,
                     string.Format(CultureInfo.InvariantCulture, "Specified value cannot be greater than {0}.",
-                        IPEndPoint.MaxPort));
+                        0));
         }
 
         /// <summary>

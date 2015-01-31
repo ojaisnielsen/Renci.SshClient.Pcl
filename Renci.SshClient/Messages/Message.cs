@@ -6,6 +6,8 @@ using Renci.SshNet.Common;
 using System.Globalization;
 using Renci.SshNet.Compression;
 using Renci.SshNet.Sftp;
+using System.Reflection;
+using Windows.Security.Cryptography;
 
 namespace Renci.SshNet.Messages
 {
@@ -48,7 +50,7 @@ namespace Renci.SshNet.Messages
         /// </summary>
         protected override void WriteBytes(SshDataStream stream)
         {
-            var messageAttribute = GetType().GetCustomAttributes(typeof(MessageAttribute), true).FirstOrDefault() as MessageAttribute;
+            var messageAttribute = GetType().GetTypeInfo().GetCustomAttributes(typeof(MessageAttribute), true).FirstOrDefault() as MessageAttribute;
 
             if (messageAttribute == null)
                 throw new SshException(string.Format(CultureInfo.CurrentCulture, "Type '{0}' is not a valid message type.", GetType().AssemblyQualifiedName));
@@ -101,8 +103,9 @@ namespace Renci.SshNet.Messages
                 var paddingLength = GetPaddingLength(paddingMultiplier, packetLength);
 
                 // add padding bytes
-                var paddingBytes = new byte[paddingLength];
-                Randomizer.GetBytes(paddingBytes);
+                byte[] paddingBytes;
+                var randomBuffer = CryptographicBuffer.GenerateRandom(paddingLength);
+                CryptographicBuffer.CopyToByteArray(randomBuffer, out paddingBytes);
                 sshDataStream.Write(paddingBytes, 0, paddingLength);
 
                 var packetDataLength = GetPacketDataLength(messageLength, paddingLength);
@@ -141,8 +144,9 @@ namespace Renci.SshNet.Messages
                 WriteBytes(sshDataStream);
 
                 // add padding bytes
-                var paddingBytes = new byte[paddingLength];
-                Randomizer.GetBytes(paddingBytes);
+                byte[] paddingBytes;
+                var randomBuffer = CryptographicBuffer.GenerateRandom(paddingLength);
+                CryptographicBuffer.CopyToByteArray(randomBuffer, out paddingBytes);
                 sshDataStream.Write(paddingBytes, 0, paddingLength);
             }
 
@@ -192,7 +196,7 @@ namespace Renci.SshNet.Messages
         /// </returns>
         public override string ToString()
         {
-            var messageAttribute = GetType().GetCustomAttributes(typeof(MessageAttribute), true).SingleOrDefault() as MessageAttribute;
+            var messageAttribute = GetType().GetTypeInfo().GetCustomAttributes(typeof(MessageAttribute), true).SingleOrDefault() as MessageAttribute;
 
             if (messageAttribute == null)
                 return string.Format(CultureInfo.CurrentCulture, "'{0}' without Message attribute.", GetType().FullName);

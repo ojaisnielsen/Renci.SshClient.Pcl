@@ -36,7 +36,7 @@ using System.Runtime.InteropServices;
 namespace System.Security.Cryptography {
 
 	[ComVisible (true)]
-	public abstract class HashAlgorithm {
+    public abstract class HashAlgorithm : IDisposable {
 
 		protected internal byte[] HashValue;
 		protected int HashSizeValue;
